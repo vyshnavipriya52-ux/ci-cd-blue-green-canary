@@ -1,4 +1,4 @@
-name: CI-CD Pipeline (SSH Deploy)
+name: CI-CD Pipeline (Final - SSH + K8s)
 
 on:
   push:
@@ -11,36 +11,36 @@ jobs:
 
     steps:
 
-    # ✅ Checkout
+    # ✅ 1. Checkout code
     - name: Checkout code
       uses: actions/checkout@v3
 
-    # ✅ Setup Node
+    # ✅ 2. Setup Node.js
     - name: Setup Node
       uses: actions/setup-node@v3
       with:
         node-version: 18
 
-    # ✅ Install dependencies
+    # ✅ 3. Install dependencies
     - name: Install dependencies
       run: npm install
 
-    # ✅ Build Docker image
+    # ✅ 4. Build Docker image
     - name: Build Docker image
       run: |
         docker build -t ${{ secrets.DOCKER_USERNAME }}/my-app:${{ github.sha }} .
 
-    # ✅ Login Docker
+    # ✅ 5. Login to Docker Hub
     - name: Docker Login
       run: |
         echo "${{ secrets.DOCKER_PASSWORD }}" | docker login -u ${{ secrets.DOCKER_USERNAME }} --password-stdin
 
-    # ✅ Push Docker image
+    # ✅ 6. Push Docker image
     - name: Push Docker image
       run: |
         docker push ${{ secrets.DOCKER_USERNAME }}/my-app:${{ github.sha }}
 
-    # 🔐 Setup SSH key
+    # 🔐 7. Setup SSH
     - name: Setup SSH
       run: |
         mkdir -p ~/.ssh
@@ -48,10 +48,39 @@ jobs:
         chmod 600 ~/.ssh/id_rsa
         ssh-keyscan -H ${{ secrets.EC2_HOST }} >> ~/.ssh/known_hosts
 
-    # 🚀 Deploy via SSH
+    # 🔍 8. Debug (optional but helpful)
+    - name: Debug SSH values
+      run: |
+        echo "User: ${{ secrets.EC2_USER }}"
+        echo "Host: ${{ secrets.EC2_HOST }}"
+
+    # 🚀 9. Deploy to Kubernetes via SSH
     - name: Deploy to EC2 Kubernetes
       run: |
         ssh ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} << 'EOF'
-          kubectl set image deployment/my-app my-app=${{ secrets.DOCKER_USERNAME }}/my-app:${{ github.sha }}
-          kubectl rollout status deployment/my-app
+          
+          echo "🚀 Connected to EC2"
+
+          # 🔥 Fix kubeconfig for k3s
+          export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
+
+          echo "📡 Checking cluster..."
+          sudo kubectl get nodes
+
+          echo "📦 Deploying new image..."
+          sudo kubectl set image deployment/my-app my-app=${{ secrets.DOCKER_USERNAME }}/my-app:${{ github.sha }}
+
+          echo "⏳ Waiting for rollout..."
+          sudo kubectl rollout status deployment/my-app
+
+        EOF
+
+    # 🔁 10. Rollback if failure
+    - name: Rollback if failed
+      if: failure()
+      run: |
+        ssh ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} << 'EOF'
+          export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
+          echo "⚠️ Rolling back deployment..."
+          sudo kubectl rollout undo deployment/my-app
         EOF
