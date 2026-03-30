@@ -1,0 +1,236 @@
+<!DOCiTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DevOps & K8s Architecture Dashboard</title>
+    <!-- FontAwesome for Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Chart.js for Monitoring -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body class="dark-mode"> <!-- Default to dark mode for modern feel -->
+    <!-- ✅ ADD HERE -->
+     <div class="env-badge blue" style="left:20px; right:auto;">
+        🔵 BLUE Environment (Stable)
+    </div>
+    <div class="canary-box">
+    🟡 Canary Deployment Active <br>
+    Traffic Split: 75% Stable / 25% New
+</div>
+    <div id="loading-overlay" class="hidden">
+        <div class="loader"></div>
+        <p>Deploying Changes...</p>
+    </div>
+    <!-- Notification Toast -->
+    <div id="notification" class="notification hidden">
+        <i class="fas fa-check-circle"></i> <span id="notif-message">Deployment Successful</span>
+    </div>
+
+    <!-- Modals for Node Info -->
+    <div id="info-modal" class="modal hidden">
+        <div class="modal-content glass-panel">
+            <span class="close-btn">&times;</span>
+            <h2 id="modal-title">Component Name</h2>
+            <div class="modal-body">
+                <p><strong>Description:</strong> <span id="modal-desc"></span></p>
+                <p><strong>Real-world Use Case:</strong> <span id="modal-usecase"></span></p>
+            </div>
+        </div>
+    </div>
+
+    <header class="glass-header">
+        <div class="logo">
+            <i class="fas fa-network-wired"></i> DevOps & K8s Dashboard
+        </div>
+        <div class="controls">
+            <button id="theme-toggle" class="btn-icon"><i class="fas fa-sun"></i></button>
+        </div>
+    </header>
+
+    <main class="dashboard-grid">
+        <!-- Center Panel: The Flow Architecture -->
+        <section class="panel architecture-panel glass-panel">
+            <h2>Architecture Pipeline</h2>
+            <div class="flow-container">
+                <!-- User -->
+                <div class="node interactive" data-id="user">
+                    <i class="fas fa-user"></i>
+                    <span>User</span>
+                </div>
+                
+                <div class="connector"><i class="fas fa-arrow-down"></i></div>
+                
+                <!-- GitHub -->
+                <div class="node interactive" data-id="github">
+                    <i class="fab fa-github"></i>
+                    <span>Source Code (Git)</span>
+                </div>
+
+                <div class="connector"><i class="fas fa-arrow-down"></i></div>
+                
+                <!-- CI/CD -->
+                <div class="node interactive" id="node-cicd" data-id="cicd">
+                    <i class="fas fa-cogs"></i>
+                    <span>CI/CD Pipeline</span>
+                </div>
+
+                <div class="connector"><i class="fas fa-arrow-down"></i></div>
+
+                <!-- Docker Registry -->
+                <div class="node interactive" id="node-registry" data-id="registry">
+                    <i class="fab fa-docker"></i>
+                    <span>Docker Registry</span>
+                </div>
+
+                <div class="connector"><i class="fas fa-arrow-down"></i></div>
+
+                <!-- Kubernetes Cluster Container -->
+                <div class="k8s-cluster interactive" id="node-k8s" data-id="k8s">
+                    <h3 class="cluster-title"><i class="fas fa-dharmachakra"></i> Kubernetes Cluster</h3>
+                    <div class="k8s-flow">
+                        <!-- Ingress -->
+                        <div class="node k8s-node interactive" data-id="ingress">
+                            <i class="fas fa-sign-in-alt"></i>
+                            <span>Ingress</span>
+                        </div>
+                        
+                        <div class="connector line-conn traffic-path"></div>
+
+                        <!-- Service -->
+                        <div class="node k8s-node interactive" data-id="service">
+                            <i class="fas fa-concierge-bell"></i>
+                            <span>Service</span>
+                        </div>
+
+                        <div class="connector line-conn traffic-path" id="service-deploy-conn"></div>
+
+                        <!-- Deployments Structure -->
+                        <div class="deployments-group">
+                            <span class="label">Namespace: Production</span>
+                            
+                            <div class="deployment blue-deploy interactive" id="deploy-blue" data-id="deploy-blue">
+                                <span class="label">ReplicaSet (Blue)</span>
+                                <h4><i class="fas fa-box"></i> Deployment v1</h4>
+                                <div class="pods">
+                                    <div class="pod"><i class="fas fa-cube"></i></div>
+                                    <div class="pod"><i class="fas fa-cube"></i></div>
+                                    <div class="pod"><i class="fas fa-cube"></i></div>
+                                </div>
+                            </div>
+                            
+                            <div class="deployment green-deploy hidden interactive" id="deploy-green" data-id="deploy-green">
+                                <span class="label">ReplicaSet (Green)</span>
+                                <h4><i class="fas fa-box"></i> Deployment v2</h4>
+                                <div class="pods">
+                                    <div class="pod"><i class="fas fa-cube"></i></div>
+                                    <div class="pod"><i class="fas fa-cube"></i></div>
+                                    <div class="pod"><i class="fas fa-cube"></i></div>
+                                </div>
+                            </div>
+                        </div>
+
+                    </div>
+                </div> <!-- End K8s -->
+            </div>
+        </section>
+
+        <!-- Right Sidebar Panels -->
+        <aside class="sidebar">
+            <!-- Controls & Status Panel -->
+            <section class="panel control-panel glass-panel">
+                <h2>Simulation Controls</h2>
+                <div class="actions">
+                    <button id="start-sim-btn" class="primary-btn"><i class="fas fa-play"></i> Start Deployment Simulation</button>
+
+		    <div class="canary-control">
+        <label>Canary Traffic: <span id="traffic-value">10%</span></label>
+        <input type="range" min="0" max="100" value="10" id="traffic-slider">
+    </div>
+                </div>
+                
+                <div class="strategy-toggles">
+                    <label>Deployment Strategy:</label>
+                    <div class="radio-group">
+                        <label><input type="radio" name="strategy" value="blue-green" checked> Blue-Green</label>
+                        <label><input type="radio" name="strategy" value="canary"> Canary</label>
+                    </div>
+                </div>
+
+                <div class="pipeline-status">
+                    <h3>Pipeline Status</h3>
+                    <div class="status-steps">
+                        <div class="step pending" id="step-build">
+                            <span class="icon"><i class="fas fa-code-branch"></i></span>
+                            <span class="text">Build</span>
+                        </div>
+                        <div class="step pending" id="step-test">
+                            <span class="icon"><i class="fas fa-vial"></i></span>
+                            <span class="text">Test</span>
+                        </div>
+                        <div class="step pending" id="step-deploy">
+                            <span class="icon"><i class="fas fa-rocket"></i></span>
+                            <span class="text">Deploy</span>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Monitoring Dashboard -->
+            <section class="panel monitoring-panel glass-panel">
+                <h2><i class="fas fa-chart-line"></i> Monitoring Data</h2>
+                <div class="charts-grid">
+                    <div class="chart-container">
+                        <canvas id="cpuChart"></canvas>
+                    </div>
+                    <div class="chart-container">
+                        <canvas id="memChart"></canvas>
+                    </div>
+                </div>
+                <!-- Add margin for spacing above metrics and below charts -->
+                <div class="metrics" style="margin-top: 15px;">
+                    <div class="metric"><span class="title">RPS:</span> <span id="req-rate" class="val">124</span></div>
+                    <div class="metric"><span class="title">Errors:</span> <span id="error-rate" class="val success">0.02%</span></div>
+                </div>
+            </section>
+
+            <!-- Terminal / Logs Panel -->
+            <section class="panel log-panel console-container">
+                <div class="console-header">
+                    <span><i class="fas fa-terminal"></i> K8s Deployment Logs</span>
+                </div>
+                <div class="console-body" id="log-output">
+                    <!-- Logs injected here -->
+                    <div class="log-line System">[SYSTEM] Log interface initialized. Ready.</div>
+                </div>
+            </section>
+        </aside>
+    </main>
+
+       <script>
+const slider = document.getElementById("traffic-slider");
+const valueDisplay = document.getElementById("traffic-value");
+
+slider.oninput = function () {
+    valueDisplay.innerText = this.value + "%";
+};
+
+slider.onchange = function () {
+    console.log("🔥 Sending:", this.value);
+
+    fetch("/set-traffic", {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ percent: this.value })
+    })
+    .then(res => res.text())
+    .then(data => console.log("Response:", data))
+    .catch(err => console.log("Error:", err));
+};
+</script>
+ 
+</body>
+</html>
