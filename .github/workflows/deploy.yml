@@ -1,4 +1,4 @@
-name: CI-CD Pipeline (Final - SSH + K8s)
+name: CI-CD Pipeline (Staging + Approval + Prod)
 
 on:
   push:
@@ -11,11 +11,11 @@ jobs:
 
     steps:
 
-    # ✅ 1. Checkout code
+    # ✅ 1. Checkout
     - name: Checkout code
       uses: actions/checkout@v3
 
-    # ✅ 2. Setup Node.js
+    # ✅ 2. Setup Node
     - name: Setup Node
       uses: actions/setup-node@v3
       with:
@@ -30,7 +30,7 @@ jobs:
       run: |
         docker build -t ${{ secrets.DOCKER_USERNAME }}/my-app:${{ github.sha }} .
 
-    # ✅ 5. Login to Docker Hub
+    # ✅ 5. Docker Login
     - name: Docker Login
       run: |
         echo "${{ secrets.DOCKER_PASSWORD }}" | docker login -u ${{ secrets.DOCKER_USERNAME }} --password-stdin
@@ -48,39 +48,59 @@ jobs:
         chmod 600 ~/.ssh/id_rsa
         ssh-keyscan -H ${{ secrets.EC2_HOST }} >> ~/.ssh/known_hosts
 
-    # 🔍 8. Debug (optional but helpful)
-    - name: Debug SSH values
+    # 🚀 8A. Deploy to STAGING
+    - name: Deploy to Staging
       run: |
-        echo "User: ${{ secrets.EC2_USER }}"
-        echo "Host: ${{ secrets.EC2_HOST }}"
+        ssh -tt ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} << 'EOF'
 
-    # 🚀 9. Deploy to Kubernetes via SSH
-    - name: Deploy to EC2 Kubernetes
-      run: |
-        ssh ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} << 'EOF'
-          
-          echo "🚀 Connected to EC2"
+          echo "🚀 Connected to EC2 (STAGING)"
 
-          # 🔥 Fix kubeconfig for k3s
           export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
 
           echo "📡 Checking cluster..."
           sudo kubectl get nodes
 
-          echo "📦 Deploying new image..."
+          echo "📦 Deploying to STAGING..."
+          sudo kubectl set image deployment/my-app my-app=${{ secrets.DOCKER_USERNAME }}/my-app:${{ github.sha }} -n staging
+
+          echo "⏳ Waiting for rollout (STAGING)..."
+          sudo kubectl rollout status deployment/my-app -n staging
+
+        EOF
+
+    # 🛑 8B. Manual Approval
+    - name: Wait for approval
+      uses: trstringer/manual-approval@v1
+      with:
+        secret: ${{ github.TOKEN }}
+        approvers: vyshnavipriya52-ux
+
+    # 🚀 8C. Deploy to PRODUCTION
+    - name: Deploy to Production
+      run: |
+        ssh -tt ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} << 'EOF'
+
+          echo "🚀 Connected to EC2 (PRODUCTION)"
+
+          export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
+
+          echo "📦 Deploying to PRODUCTION..."
           sudo kubectl set image deployment/my-app my-app=${{ secrets.DOCKER_USERNAME }}/my-app:${{ github.sha }}
 
-          echo "⏳ Waiting for rollout..."
+          echo "⏳ Waiting for rollout (PRODUCTION)..."
           sudo kubectl rollout status deployment/my-app
 
         EOF
 
-    # 🔁 10. Rollback if failure
+    # 🔁 9. Rollback if failure
     - name: Rollback if failed
       if: failure()
       run: |
-        ssh ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} << 'EOF'
+        ssh -tt ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} << 'EOF'
+
           export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
+
           echo "⚠️ Rolling back deployment..."
           sudo kubectl rollout undo deployment/my-app
+
         EOF
