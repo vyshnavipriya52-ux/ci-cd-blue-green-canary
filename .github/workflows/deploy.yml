@@ -1,39 +1,57 @@
-name: CI-CD Pipeline
+name: CI-CD Pipeline (SSH Deploy)
 
 on:
   push:
-    branches: [ "main" ]
+    branches:
+      - main
 
 jobs:
   build-deploy:
     runs-on: ubuntu-latest
 
     steps:
+
+    # ✅ Checkout
     - name: Checkout code
       uses: actions/checkout@v3
 
-    - name: Set up Node.js
+    # ✅ Setup Node
+    - name: Setup Node
       uses: actions/setup-node@v3
       with:
         node-version: 18
 
+    # ✅ Install dependencies
     - name: Install dependencies
       run: npm install
 
-    - name: Run tests
-      run: echo "No tests yet"
-
+    # ✅ Build Docker image
     - name: Build Docker image
       run: |
         docker build -t ${{ secrets.DOCKER_USERNAME }}/my-app:${{ github.sha }} .
 
-    - name: Login to Docker Hub
-      run: echo "${{ secrets.DOCKER_PASSWORD }}" | docker login -u ${{ secrets.DOCKER_USERNAME }} --password-stdin
+    # ✅ Login Docker
+    - name: Docker Login
+      run: |
+        echo "${{ secrets.DOCKER_PASSWORD }}" | docker login -u ${{ secrets.DOCKER_USERNAME }} --password-stdin
 
-    - name: Push image
+    # ✅ Push Docker image
+    - name: Push Docker image
       run: |
         docker push ${{ secrets.DOCKER_USERNAME }}/my-app:${{ github.sha }}
 
-    - name: Deploy to Kubernetes
+    # 🔐 Setup SSH key
+    - name: Setup SSH
       run: |
-        kubectl set image deployment/my-app my-app=${{ secrets.DOCKER_USERNAME }}/my-app:${{ github.sha }}
+        mkdir -p ~/.ssh
+        echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/id_rsa
+        chmod 600 ~/.ssh/id_rsa
+        ssh-keyscan -H ${{ secrets.EC2_HOST }} >> ~/.ssh/known_hosts
+
+    # 🚀 Deploy via SSH
+    - name: Deploy to EC2 Kubernetes
+      run: |
+        ssh ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} << 'EOF'
+          kubectl set image deployment/my-app my-app=${{ secrets.DOCKER_USERNAME }}/my-app:${{ github.sha }}
+          kubectl rollout status deployment/my-app
+        EOF
