@@ -1,19 +1,22 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: my-app
+  name: my-app-blue
+  namespace: staging
 spec:
-  replicas: 2
+  replicas: 9
   selector:
     matchLabels:
       app: my-app
+      version: blue
   template:
     metadata:
       labels:
         app: my-app
+        version: blue
     spec:
       containers:
       - name: my-app
-        image: vyshnavipriya/my-app:latest
+        image: vyshanvipriya/my-app:latest
         ports:
         - containerPort: 3000
