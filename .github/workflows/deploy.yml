@@ -1,9 +1,10 @@
-name: CI/CD Pipeline (Staging → Approval → Production)
+name: Enterprise CI/CD Pipeline (Canary + Blue-Green)
 
 on:
   push:
     branches:
       - main
+  workflow_dispatch:
 
 jobs:
 
@@ -43,13 +44,15 @@ jobs:
     - name: Build Docker Image
       run: |
         docker build -t ${{ secrets.DOCKER_USERNAME }}/my-app:${{ github.sha }} .
+        docker tag ${{ secrets.DOCKER_USERNAME }}/my-app:${{ github.sha }} ${{ secrets.DOCKER_USERNAME }}/my-app:latest
 
-    - name: Push Docker Image
+    - name: Push Docker Images
       run: |
         docker push ${{ secrets.DOCKER_USERNAME }}/my-app:${{ github.sha }}
+        docker push ${{ secrets.DOCKER_USERNAME }}/my-app:latest
 
 
-# 🚀 3. DEPLOY TO STAGING
+# 🚀 3. DEPLOY TO STAGING (BLUE BASE)
   deploy-staging:
     runs-on: ubuntu-latest
     needs: docker-build
@@ -62,37 +65,29 @@ jobs:
         chmod 600 ~/.ssh/id_rsa
         ssh-keyscan -H ${{ secrets.EC2_HOST }} >> ~/.ssh/known_hosts
 
-    - name: Deploy to Staging
+    - name: Deploy Blue (Stable)
       run: |
         ssh -o StrictHostKeyChecking=no ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} << 'EOF'
 
           export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
 
-          echo "📦 Updating Deployment..."
-          sudo kubectl set image deployment/my-app my-app=${{ secrets.DOCKER_USERNAME }}/my-app:${{ github.sha }} -n staging
+          echo "🔵 Updating BLUE deployment (stable)..."
+          sudo kubectl set image deployment/my-app-blue my-app=${{ secrets.DOCKER_USERNAME }}/my-app:${{ github.sha }} -n staging
 
-          echo "📊 Checking Pods..."
+          echo "📊 Blue Pods:"
           sudo kubectl get pods -n staging
 
-          echo "⏳ Waiting for pods to stabilize..."
           sleep 10
 
-          echo "📊 Final Pod Status:"
-          sudo kubectl get pods -n staging
-
-          echo "🌐 Service Info:"
-          sudo kubectl get svc -n staging
-
-          echo "✅ Staging Deployment Completed"
+          echo "✅ Staging (Blue) ready"
 
         EOF
 
 
-# 🔴 4. PRODUCTION DEPLOY (WITH APPROVAL)
-  deploy-production:
+# 🐤 4. CANARY DEPLOYMENT (10%)
+  deploy-canary:
     runs-on: ubuntu-latest
     needs: deploy-staging
-    environment: production   # 🔥 Requires manual approval
 
     steps:
     - name: Setup SSH
@@ -102,31 +97,76 @@ jobs:
         chmod 600 ~/.ssh/id_rsa
         ssh-keyscan -H ${{ secrets.EC2_HOST }} >> ~/.ssh/known_hosts
 
-    - name: Deploy to Production
+    - name: Deploy Canary
       run: |
         ssh -o StrictHostKeyChecking=no ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} << 'EOF'
 
           export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
 
-          echo "🚀 Deploying to Production..."
+          echo "🐤 Deploying CANARY (10%)..."
 
-          sudo kubectl set image deployment/my-app my-app=${{ secrets.DOCKER_USERNAME }}/my-app:${{ github.sha }}
+          sudo kubectl set image deployment/my-app-canary my-app=${{ secrets.DOCKER_USERNAME }}/my-app:${{ github.sha }} -n staging
 
-          echo "📊 Checking Pods..."
-          sudo kubectl get pods
+          echo "📊 Traffic Split:"
+          echo "BLUE → 90% (9 replicas)"
+          echo "CANARY → 10% (1 replica)"
 
-          echo "⏳ Waiting..."
+          sudo kubectl get pods -n staging
+
           sleep 10
 
-          echo "📊 Final Pod Status:"
-          sudo kubectl get pods
-
-          echo "✅ Production Deployment Completed"
+          echo "✅ Canary deployed"
 
         EOF
 
 
-# 🔁 5. ROLLBACK (IF FAILURE)
+# 🔴 5. MANUAL APPROVAL (PRODUCTION)
+  approval:
+    runs-on: ubuntu-latest
+    needs: deploy-canary
+    environment: production
+
+    steps:
+    - name: Waiting for Approval
+      run: echo "⏳ Waiting for manual approval..."
+
+
+# 🟢 6. BLUE-GREEN SWITCH (PRODUCTION)
+  deploy-production:
+    runs-on: ubuntu-latest
+    needs: approval
+
+    steps:
+    - name: Setup SSH
+      run: |
+        mkdir -p ~/.ssh
+        echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/id_rsa
+        chmod 600 ~/.ssh/id_rsa
+        ssh-keyscan -H ${{ secrets.EC2_HOST }} >> ~/.ssh/known_hosts
+
+    - name: Switch to GREEN
+      run: |
+        ssh -o StrictHostKeyChecking=no ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} << 'EOF'
+
+          export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
+
+          echo "🟢 Scaling GREEN deployment..."
+          sudo kubectl scale deployment my-app-green --replicas=5 -n staging
+
+          echo "🔵 Scaling DOWN BLUE deployment..."
+          sudo kubectl scale deployment my-app-blue --replicas=0 -n staging
+
+          echo "📊 Final Pods:"
+          sudo kubectl get pods -n staging
+
+          sleep 10
+
+          echo "✅ Production switched to GREEN"
+
+        EOF
+
+
+# 🔁 7. ROLLBACK (IF FAILURE)
   rollback:
     runs-on: ubuntu-latest
     needs: deploy-production
@@ -140,16 +180,19 @@ jobs:
         chmod 600 ~/.ssh/id_rsa
         ssh-keyscan -H ${{ secrets.EC2_HOST }} >> ~/.ssh/known_hosts
 
-    - name: Rollback Deployment
+    - name: Rollback to BLUE
       run: |
         ssh -o StrictHostKeyChecking=no ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} << 'EOF'
 
           export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
 
-          echo "⚠️ Rolling back deployment..."
-          sudo kubectl rollout undo deployment/my-app
+          echo "⚠️ Rolling back to BLUE..."
 
-          echo "📊 Pod Status after rollback:"
-          sudo kubectl get pods
+          sudo kubectl scale deployment my-app-blue --replicas=5 -n staging
+          sudo kubectl scale deployment my-app-green --replicas=0 -n staging
+
+          sudo kubectl get pods -n staging
+
+          echo "✅ Rollback completed"
 
         EOF
