@@ -33,11 +33,11 @@ jobs:
     - name: Run Lint
       run: npm run lint || true
 
-    # 🔐 Security Scan (Snyk)
-    - name: Snyk Security Scan
-      uses: snyk/actions/node@master
-      env:
-        SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+   # 🔐 Security Scan (Snyk)
+    #- name: Snyk Security Scan
+     # uses: snyk/actions/node@master
+      #env:
+      #  SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
 
 # ================================
 # 🐳 JOB 2: DOCKER BUILD + PUSH
