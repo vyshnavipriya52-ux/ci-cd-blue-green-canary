@@ -1,4 +1,4 @@
-name: 🚀 CI/CD Pipeline (Canary + Blue-Green)
+name: CI/CD Pipeline (Staging → Approval → Production)
 
 on:
   push:
@@ -7,165 +7,149 @@ on:
 
 jobs:
 
-# =========================
-# 🔵 BUILD + TEST
-# =========================
+# 🔵 1. BUILD + TEST
   build-test:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout Code
-        uses: actions/checkout@v3
+    - name: Checkout Code
+      uses: actions/checkout@v3
 
-      - name: Setup Node
-        uses: actions/setup-node@v3
-        with:
-          node-version: 18
+    - name: Setup Node
+      uses: actions/setup-node@v3
+      with:
+        node-version: 18
 
-      - name: Install Dependencies
-        run: npm install
+    - name: Install Dependencies
+      run: npm install
 
-      - name: Run Tests
-        run: npm test
+    - name: Run Tests
+      run: npm test
 
-# =========================
-# 🐳 DOCKER BUILD + PUSH
-# =========================
+
+# 🐳 2. DOCKER BUILD + PUSH
   docker-build:
     runs-on: ubuntu-latest
     needs: build-test
 
     steps:
-      - name: Checkout Code
-        uses: actions/checkout@v3
+    - name: Checkout Code
+      uses: actions/checkout@v3
 
-      - name: Docker Login
-        run: |
-          echo "${{ secrets.DOCKER_PASSWORD }}" | docker login -u ${{ secrets.DOCKER_USERNAME }} --password-stdin
+    - name: Docker Login
+      run: |
+        echo "${{ secrets.DOCKER_PASSWORD }}" | docker login -u ${{ secrets.DOCKER_USERNAME }} --password-stdin
 
-      - name: Build Image
-        run: |
-          docker build -t ${{ secrets.DOCKER_USERNAME }}/my-app:${{ github.sha }} .
+    - name: Build Docker Image
+      run: |
+        docker build -t ${{ secrets.DOCKER_USERNAME }}/my-app:${{ github.sha }} .
 
-      - name: Push Image
-        run: |
-          docker push ${{ secrets.DOCKER_USERNAME }}/my-app:${{ github.sha }}
+    - name: Push Docker Image
+      run: |
+        docker push ${{ secrets.DOCKER_USERNAME }}/my-app:${{ github.sha }}
 
-# =========================
-# 🧪 DEPLOY TO STAGING
-# =========================
+
+# 🚀 3. DEPLOY TO STAGING
   deploy-staging:
     runs-on: ubuntu-latest
     needs: docker-build
 
     steps:
-      - name: Setup SSH
-        run: |
-          mkdir -p ~/.ssh
-          echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/id_rsa
-          chmod 600 ~/.ssh/id_rsa
-          ssh-keyscan -H ${{ secrets.EC2_HOST }} >> ~/.ssh/known_hosts
+    - name: Setup SSH
+      run: |
+        mkdir -p ~/.ssh
+        echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/id_rsa
+        chmod 600 ~/.ssh/id_rsa
+        ssh-keyscan -H ${{ secrets.EC2_HOST }} >> ~/.ssh/known_hosts
 
-      - name: Deploy to Staging
-        run: |
-          ssh -o ServerAliveInterval=60 -o ServerAliveCountMax=5 -tt ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} << EOF
-            export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
+    - name: Deploy to Staging
+      run: |
+        ssh -o StrictHostKeyChecking=no ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} << 'EOF'
 
-            echo "📦 Updating Deployment..."
-            sudo kubectl set image deployment/my-app my-app=${{ secrets.DOCKER_USERNAME }}/my-app:${{ github.sha }} -n staging
+          export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
 
-            echo "⏳ Checking rollout status..."
-            sudo kubectl rollout status deployment/my-app -n staging --timeout=60s || true
+          echo "📦 Updating Deployment..."
+          sudo kubectl set image deployment/my-app my-app=${{ secrets.DOCKER_USERNAME }}/my-app:${{ github.sha }} -n staging
 
-            echo "📊 Pod Status:"
-            sudo kubectl get pods -n staging
+          echo "📊 Checking Pods..."
+          sudo kubectl get pods -n staging
 
-            echo "✅ Staging deployment completed"
-          EOF
+          echo "⏳ Waiting for pods to stabilize..."
+          sleep 10
 
-# =========================
-# 🐤 CANARY DEPLOYMENT
-# =========================
-  canary:
+          echo "📊 Final Pod Status:"
+          sudo kubectl get pods -n staging
+
+          echo "🌐 Service Info:"
+          sudo kubectl get svc -n staging
+
+          echo "✅ Staging Deployment Completed"
+
+        EOF
+
+
+# 🔴 4. PRODUCTION DEPLOY (WITH APPROVAL)
+  deploy-production:
     runs-on: ubuntu-latest
     needs: deploy-staging
+    environment: production   # 🔥 Requires manual approval
 
     steps:
-      - name: Setup SSH
-        run: |
-          mkdir -p ~/.ssh
-          echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/id_rsa
-          chmod 600 ~/.ssh/id_rsa
-          ssh-keyscan -H ${{ secrets.EC2_HOST }} >> ~/.ssh/known_hosts
+    - name: Setup SSH
+      run: |
+        mkdir -p ~/.ssh
+        echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/id_rsa
+        chmod 600 ~/.ssh/id_rsa
+        ssh-keyscan -H ${{ secrets.EC2_HOST }} >> ~/.ssh/known_hosts
 
-      - name: Deploy Canary
-        run: |
-          ssh -o ServerAliveInterval=60 -o ServerAliveCountMax=5 -tt ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} << EOF
-            export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
+    - name: Deploy to Production
+      run: |
+        ssh -o StrictHostKeyChecking=no ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} << 'EOF'
 
-            echo "🐤 Applying Canary..."
-            sudo kubectl apply -f canary-deployment.yaml
+          export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
 
-            echo "📊 Scaling Canary..."
-            sudo kubectl scale deployment my-app-canary --replicas=1 -n staging
+          echo "🚀 Deploying to Production..."
 
-            sleep 15
+          sudo kubectl set image deployment/my-app my-app=${{ secrets.DOCKER_USERNAME }}/my-app:${{ github.sha }}
 
-            sudo kubectl scale deployment my-app-canary --replicas=2 -n staging
+          echo "📊 Checking Pods..."
+          sudo kubectl get pods
 
-            echo "✅ Canary deployment done"
-          EOF
+          echo "⏳ Waiting..."
+          sleep 10
 
-# =========================
-# 🔴 PRODUCTION (APPROVAL)
-# =========================
-  production:
-    runs-on: ubuntu-latest
-    needs: canary
-    environment: production
+          echo "📊 Final Pod Status:"
+          sudo kubectl get pods
 
-    steps:
-      - name: Setup SSH
-        run: |
-          mkdir -p ~/.ssh
-          echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/id_rsa
-          chmod 600 ~/.ssh/id_rsa
-          ssh-keyscan -H ${{ secrets.EC2_HOST }} >> ~/.ssh/known_hosts
+          echo "✅ Production Deployment Completed"
 
-      - name: Deploy to Production
-        run: |
-          ssh -o ServerAliveInterval=60 -o ServerAliveCountMax=5 -tt ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} << EOF
-            export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
+        EOF
 
-            echo "🟢 Deploying to Production..."
-            sudo kubectl set image deployment/my-app my-app=${{ secrets.DOCKER_USERNAME }}/my-app:${{ github.sha }} -n production
 
-            sudo kubectl rollout status deployment/my-app -n production --timeout=120s
-
-            echo "🚀 Production deployment successful"
-          EOF
-
-# =========================
-# ⚠️ ROLLBACK
-# =========================
+# 🔁 5. ROLLBACK (IF FAILURE)
   rollback:
     runs-on: ubuntu-latest
-    needs: production
+    needs: deploy-production
     if: failure()
 
     steps:
-      - name: Setup SSH
-        run: |
-          mkdir -p ~/.ssh
-          echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/id_rsa
-          chmod 600 ~/.ssh/id_rsa
-          ssh-keyscan -H ${{ secrets.EC2_HOST }} >> ~/.ssh/known_hosts
+    - name: Setup SSH
+      run: |
+        mkdir -p ~/.ssh
+        echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/id_rsa
+        chmod 600 ~/.ssh/id_rsa
+        ssh-keyscan -H ${{ secrets.EC2_HOST }} >> ~/.ssh/known_hosts
 
-      - name: Rollback
-        run: |
-          ssh -o ServerAliveInterval=60 -o ServerAliveCountMax=5 -tt ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} << EOF
-            export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
+    - name: Rollback Deployment
+      run: |
+        ssh -o StrictHostKeyChecking=no ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} << 'EOF'
 
-            echo "⚠️ Rolling back..."
-            sudo kubectl rollout undo deployment/my-app -n production
-          EOF
+          export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
+
+          echo "⚠️ Rolling back deployment..."
+          sudo kubectl rollout undo deployment/my-app
+
+          echo "📊 Pod Status after rollback:"
+          sudo kubectl get pods
+
+        EOF
