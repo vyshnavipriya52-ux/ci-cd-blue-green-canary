@@ -2,8 +2,9 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: my-app-canary
+  namespace: staging
 spec:
-  replicas: 1   # 🔥 30% traffic
+  replicas: 1
   selector:
     matchLabels:
       app: my-app
@@ -16,6 +17,6 @@ spec:
     spec:
       containers:
       - name: my-app
-        image: vyshnavipriya/my-app:green
+        image: vyshnavipriya/my-app:latest
         ports:
         - containerPort: 3000
