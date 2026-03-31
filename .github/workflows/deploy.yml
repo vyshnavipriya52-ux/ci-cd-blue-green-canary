@@ -164,10 +164,10 @@ jobs:
 
            echo "🔍 Validating pods are running..."
 
-           STATUS=$(sudo kubectl get pods -n staging --no-headers | grep -v Running || true)
+           NOT_READY=$(sudo kubectl get pods -n staging --no-headers | awk '{print $3}' | grep -v Running || true)
 
-           if [ -n "$STATUS" ]; then
-             echo "❌ Some pods are not running!"
+           if [ -n "$NOT_READY" ]; then
+             echo " Some pods are not running!"
              sudo kubectl get pods -n staging
              exit 1
            fi
