@@ -1,15 +1,20 @@
 const express = require("express");
-const { exec } = require("child_process");
 const path = require("path");
 
 const app = express();
 
-// ✅ Serve static files (VERY IMPORTANT)
+// ✅ Serve static files
 app.use(express.static(path.join(__dirname)));
 
+// ✅ Parse JSON
 app.use(express.json());
 
-// Canary API
+// ✅ Health check endpoint (VERY IMPORTANT for Kubernetes)
+app.get("/", (req, res) => {
+    res.send("App is running 🚀");
+});
+
+// ✅ Canary simulation API (safe version)
 app.post("/set-traffic", (req, res) => {
     const percent = parseInt(req.body.percent);
 
@@ -18,15 +23,20 @@ app.post("/set-traffic", (req, res) => {
     if (percent >= 50) replicas = 2;
     if (percent >= 80) replicas = 3;
 
-    console.log("Scaling to:", replicas);
+    console.log("Requested traffic:", percent);
+    console.log("Simulated scaling to:", replicas);
 
-    exec(`kubectl scale deployment my-app-canary --replicas=${replicas}`, (err) => {
-        if (err) {
-            console.log(err);
-            return res.send("Error scaling");
-        }
-        res.send(`Scaled to ${replicas}`);
+    // 🔥 IMPORTANT:
+    // We are NOT running kubectl inside container
+    // This is just simulation for now
+
+    res.json({
+        message: "Traffic updated (simulated)",
+        replicas: replicas
     });
 });
 
-app.listen(3000, () => console.log("Server running on port 3000"));
+// ✅ Start server (CRITICAL FIX)
+app.listen(3000, "0.0.0.0", () => {
+    console.log("Server running on port 3000");
+});
