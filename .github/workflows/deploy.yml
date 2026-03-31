@@ -156,14 +156,23 @@ jobs:
           echo "🔵 Scaling DOWN BLUE deployment..."
           sudo kubectl scale deployment my-app-blue --replicas=0 -n staging
 
-          echo "📊 Final Pods:"
-          sudo kubectl get pods -n staging
+           echo "📊 Checking Pods..."
+           sudo kubectl get pods -n staging
 
-          sleep 10
+           echo "⏳ Waiting 10 seconds..."
+           sleep 10
 
-          echo "✅ Production switched to GREEN"
+           echo "🔍 Validating pods are running..."
 
-        EOF
+           STATUS=$(sudo kubectl get pods -n staging --no-headers | grep -v Running || true)
+
+           if [ -n "$STATUS" ]; then
+             echo "❌ Some pods are not running!"
+             sudo kubectl get pods -n staging
+             exit 1
+           fi
+
+           echo "✅ All pods are running successfully"
 
 
 # 🔁 7. ROLLBACK (IF FAILURE)
