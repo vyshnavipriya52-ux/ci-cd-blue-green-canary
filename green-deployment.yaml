@@ -2,15 +2,18 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: my-app-green
+  namespace: staging
 spec:
-  replicas: 2
+  replicas: 0
   selector:
     matchLabels:
-      app: my-app-green
+      app: my-app
+      version: green
   template:
     metadata:
       labels:
-        app: my-app-green
+        app: my-app
+        version: green
     spec:
       containers:
       - name: my-app
