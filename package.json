@@ -1,8 +1,21 @@
 {
   "name": "my-app",
   "version": "1.0.0",
+  "description": "Node.js app with CI/CD, Kubernetes, Canary & Blue-Green deployment",
   "main": "app.js",
+  "scripts": {
+    "start": "node app.js",
+    "test": "jest",
+    "dev": "nodemon app.js",
+    "lint": "echo \"No lint configured\""
+  },
+  "author": "",
+  "license": "MIT",
   "dependencies": {
     "express": "^4.18.2"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0",
+    "nodemon": "^3.0.1"
   }
 }
